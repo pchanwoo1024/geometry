@@ -1,4 +1,4 @@
-opencv-python-headless
-numpy
 streamlit
-pandas
+tensorflow
+pillow
+numpy
