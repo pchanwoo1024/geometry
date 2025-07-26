@@ -1,4 +1,5 @@
 streamlit
-pillow
+opencv-python-headless
+ultralytics
 numpy
-tflite-runtime
+pandas
