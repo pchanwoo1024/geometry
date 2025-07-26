@@ -1,36 +1,38 @@
 # app.py
 
 import streamlit as st
+import os
 import cv2
 import numpy as np
 from snack_utils import analyze_snack_image
 
+# --- 디버깅: 파일 목록 찍어보기 ---
+st.write("현재 작업 디렉터리:", os.getcwd())
+st.write("디렉터리 내 파일들:", os.listdir())
+
+# --- 앱 설정 ---
 st.set_page_config(page_title="푸드스캐너", layout="centered")
 st.title("📷 푸드스캐너 (YOLO‑Seg + 기하분류)")
-st.caption("YOLOv8 Segmentation으로 캔을 분할 → 라벨 정사영 → 8개 스낵 분류·영양 안내까지!")
+st.caption("분석 시작 전에 위에 파일 목록이 보이는지 확인하세요.")
 
-uploaded = st.file_uploader("스낵 사진 업로드", type=["jpg", "png", "jpeg"])
+uploaded = st.file_uploader("스낵 사진 업로드", type=["jpg","png","jpeg"])
 if uploaded:
     img_bytes = np.asarray(bytearray(uploaded.read()), dtype=np.uint8)
     img       = cv2.imdecode(img_bytes, cv2.IMREAD_COLOR)
 
     try:
-        # 분석: snack, ratio, roundness, hue, taper, info, max_sugar, max_sodium, warped_out
         snack, ratio, roundness, hue, taper, info, max_sug, max_sod, out = analyze_snack_image(img)
 
-        # 결과 이미지
         st.image(
             cv2.cvtColor(out, cv2.COLOR_BGR2RGB),
             use_container_width=True
         )
-
-        # 텍스트 정보
         st.success(f"✅ 인식된 간식: **{snack}**")
         st.markdown(f"- 비율: `{ratio:.2f}`  원형도: `{roundness:.2f}`")
         st.markdown(f"- Hue: `{hue}`  Taper: `{taper:.2f}`")
         st.markdown("#### ℹ️ 영양·알레르기 정보")
         st.table(info)
-        st.markdown("#### ⚠️ 하루 권장 최대 섭취 개수")
+        st.markdown("#### ⚠️ 하루 최대 권장 섭취 개수")
         st.write(f"- 당 기준: **{max_sug}개**")
         st.write(f"- 나트륨 기준: **{max_sod}개**")
 
