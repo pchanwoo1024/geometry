@@ -36,12 +36,14 @@ _seg_model = YOLO("yolov8n-seg.pt")
 def detect_snack_mask(img):
     """YOLOv8 Segmentation으로 스낵 영역 마스크 반환."""
     res = _seg_model(img, verbose=False)[0]
-    if not hasattr(res, "masks") or res.masks.data.shape[0] == 0:
+    masks_attr = getattr(res, "masks", None)
+    # masks가 없거나 None이거나 data가 없으면 전체 영역 fallback
+    if masks_attr is None or masks_attr.data is None or masks_attr.data.shape[0] == 0:
         return np.ones(img.shape[:2], dtype=np.uint8) * 255
-    masks = res.masks.data.cpu().numpy()  # (N, H, W)
+    # 가장 큰 마스크 선택
+    masks = masks_attr.data.cpu().numpy()  # (N, H, W)
     areas = masks.reshape(masks.shape[0], -1).sum(axis=1)
-    mask = masks[np.argmax(areas)].astype(np.uint8) * 255
-    return mask
+    return (masks[np.argmax(areas)].astype(np.uint8) * 255)
 
 # ─── 3) 특징 추출 ────────────────────────────────────────────────
 def extract_features(img):
@@ -96,9 +98,9 @@ def extract_features(img):
     roundness = (4 * np.pi * area / (peri2**2)) if peri2>0 else 0
 
     # E) hue
-    hsv  = cv2.cvtColor(warped, cv2.COLOR_BGR2HSV)
+    hsv = cv2.cvtColor(warped, cv2.COLOR_BGR2HSV)
     hist = cv2.calcHist([hsv], [0], None, [180], [0,180])
-    hue  = int(np.argmax(hist))
+    hue = int(np.argmax(hist))
 
     # F) taper
     mask_y = cv2.inRange(hsv, (20,50,50), (40,255,255))
@@ -117,10 +119,8 @@ def classify_snack(ratio, roundness, hue, taper):
     wgt  = np.array([1.0, 1.0, 0.5, 2.0])
     best, bd = None, float('inf')
     for name, ref in food_classes.items():
-        vec = np.array([ref["ratio"],
-                        ref["roundness"],
-                        ref["hue"]/180.0,
-                        ref["taper"]/TAPER_MAX])
+        vec = np.array([ref["ratio"], ref["roundness"],
+                        ref["hue"]/180.0, ref["taper"]/TAPER_MAX])
         dist = np.sqrt(np.sum(wgt * (feat - vec)**2))
         if dist < bd:
             bd, best = dist, name
@@ -131,18 +131,18 @@ def analyze_snack_image(img):
     warped, cnt, r, rd, hue, taper = extract_features(img)
     snack = classify_snack(r, rd, hue, taper)
     info  = nutrition_db[snack]
-    ms    = DAILY_SUGAR_MAX  // info["당"]
-    mn    = DAILY_SODIUM_MAX // info["나트륨"]
-    out   = warped.copy()
+    max_sug = DAILY_SUGAR_MAX  // info["당"]
+    max_sod = DAILY_SODIUM_MAX // info["나트륨"]
+    out = warped.copy()
     cv2.drawContours(out, [cnt], -1, (0,255,0), 2)
-    return snack, r, rd, hue, taper, info, int(ms), int(mn), out
+    return snack, r, rd, hue, taper, info, int(max_sug), int(max_sod), out
 
 # ─── 6) Streamlit UI ──────────────────────────────────────────
 st.set_page_config(page_title="푸드스캐너", layout="centered")
 st.title("📷 푸드스캐너 (YOLO‑Seg + 기하분류)")
 st.caption("YOLO‑Segmentation → 라벨 정사영 → 8개 스낵 분류·영양 안내까지!")
 
-uploaded = st.file_uploader("스낵 사진 업로드", type=["jpg","png","jpeg"])
+uploaded = st.file_uploader("스낵 사진 업로드", type=["jpg", "png", "jpeg"])
 if uploaded:
     data = np.asarray(bytearray(uploaded.read()), dtype=np.uint8)
     img  = cv2.imdecode(data, cv2.IMREAD_COLOR)
@@ -150,14 +150,16 @@ if uploaded:
     try:
         snack, ratio, roundness, hue, taper, info, max_sug, max_sod, out = analyze_snack_image(img)
 
-        st.image(cv2.cvtColor(out, cv2.COLOR_BGR2RGB),
-                 use_container_width=True)
+        st.image(
+            cv2.cvtColor(out, cv2.COLOR_BGR2RGB),
+            use_container_width=True
+        )
         st.success(f"✅ 인식된 간식: **{snack}**")
         st.markdown(f"- 비율: `{ratio:.2f}`  원형도: `{roundness:.2f}`")
         st.markdown(f"- Hue: `{hue}`  Taper: `{taper:.2f}`")
         st.markdown("#### ℹ️ 영양·알레르기 정보")
         st.table(info)
-        st.markdown("#### ⚠️ 하루 최대 권장 섭취 개수")
+        st.markdown("#### ⚠️ 하루 권장 최대 섭취 개수")
         st.write(f"- 당 기준: **{max_sug}개**")
         st.write(f"- 나트륨 기준: **{max_sod}개**")
 
