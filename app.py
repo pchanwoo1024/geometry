@@ -1,33 +1,33 @@
+# app.py
+
 import streamlit as st
+import cv2
 import numpy as np
-from PIL import Image
-import tflite_runtime.interpreter as tflite
+from snack_utils import analyze_snack_image
 
-LABELS = ["뻥튀기","데미소다","쫀디기","메가톤","월드콘","조리퐁","미쯔블랙","앙크림빵"]
-NUTRI = { … }  # 기존 nutrition_db
+st.set_page_config(page_title="푸드스캐너", layout="centered")
+st.title("📷 푸드스캐너 (YOLO + 기하분류)")
+st.caption("YOLO로 객체검출 후 라벨을 펼쳐서 8개 스낵을 분류·영양안내까지!")
 
-@st.cache_resource
-def load_interpreter():
-    interp = tflite.Interpreter("snack_classifier.tflite")
-    interp.allocate_tensors()
-    return interp
+uploaded = st.file_uploader("스낵 사진 업로드", type=["jpg","png","jpeg"])
+if uploaded:
+    img_bytes = np.asarray(bytearray(uploaded.read()), dtype=np.uint8)
+    img = cv2.imdecode(img_bytes, cv2.IMREAD_COLOR)
 
-interpreter = load_interpreter()
-input_details  = interpreter.get_input_details()
-output_details = interpreter.get_output_details()
+    try:
+        snack, ratio, roundness, hue, taper, info, ms, mn, out = analyze_snack_image(img)
 
-st.title("푸드스캐너 (TFLite)")
-up = st.file_uploader("스낵 사진 업로드", type=["jpg","png","jpeg"])
-if up:
-    img = Image.open(up).convert("RGB")
-    st.image(img, use_column_width=True)
-    arr = np.array(img.resize((224,224)), dtype=np.float32)[np.newaxis]/255.0
+        st.image(cv2.cvtColor(out, cv2.COLOR_BGR2RGB), use_column_width=True)
+        st.success(f"✅ 인식된 간식: **{snack}**")
+        st.markdown(f"- 비율: `{ratio:.2f}`  원형도: `{roundness:.2f}`")
+        st.markdown(f"- Hue: `{hue}`  Taper: `{taper:.2f}`")
 
-    interpreter.set_tensor(input_details[0]["index"], arr)
-    interpreter.invoke()
-    preds = interpreter.get_tensor(output_details[0]["index"])[0]
-    idx = int(np.argmax(preds))
-    snack = LABELS[idx]
+        st.markdown("#### ℹ️ 영양·알레르기 정보")
+        st.table(info)
 
-    st.success(f"✅ 인식: {snack} ({preds[idx]*100:.1f}%)")
-    st.table(NUTRI[snack])
+        st.markdown("#### ⚠️ 하루 권장 최대 섭취 개수")
+        st.write(f"- 당 기준: **{ms}개**")
+        st.write(f"- 나트륨 기준: **{mn}개**")
+
+    except Exception as e:
+        st.error(f"분석 실패: {e}")
